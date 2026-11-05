@@ -64,5 +64,12 @@ Project Status
 Prototype development and testing.
 
 ---
+## Working Prototype Demonstration
+
+The physical prototype is currently under development.
+Prototype photographs and ESP32 source code are provided
+to demonstrate the current implementation.
+
+A demonstration video will be added after testing.
 
 ROBO-SX – Smarter Monitoring, Safer Railways

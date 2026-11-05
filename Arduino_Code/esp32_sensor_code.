@@ -1,0 +1,180 @@
+#include <WiFi.h>
+#include <WebServer.h>
+#include "DHT.h"
+
+// -------- Wi-Fi settings --------
+const char* ssid = "YOUR_WIFI_NAME";
+const char* password = "YOUR_WIFI_PASSWORD";
+
+// -------- Sensor pins --------
+#define DHTPIN 4
+#define DHTTYPE DHT11
+#define VIBRATION_PIN 27
+
+// Many digital vibration modules are active HIGH.
+// Change to LOW if your module behaves oppositely.
+#define VIBRATION_ACTIVE HIGH
+
+DHT dht(DHTPIN, DHTTYPE);
+WebServer server(80);
+
+// -------- Sensor values --------
+float temperature = 0;
+float humidity = 0;
+bool vibrationDetected = false;
+
+unsigned long lastDHTRead = 0;
+unsigned long lastVibrationRead = 0;
+
+const unsigned long DHT_INTERVAL = 2000;
+const unsigned long VIBRATION_INTERVAL = 100;
+
+void readSensors() {
+  unsigned long now = millis();
+
+  // Read DHT11 every 2 seconds
+  if (now - lastDHTRead >= DHT_INTERVAL) {
+    lastDHTRead = now;
+
+    float t = dht.readTemperature();
+    float h = dht.readHumidity();
+
+    if (!isnan(t) && !isnan(h)) {
+      temperature = t;
+      humidity = h;
+    } else {
+      Serial.println("DHT11 reading failed!");
+    }
+  }
+
+  // Read vibration sensor
+  if (now - lastVibrationRead >= VIBRATION_INTERVAL) {
+    lastVibrationRead = now;
+
+    vibrationDetected =
+      (digitalRead(VIBRATION_PIN) == VIBRATION_ACTIVE);
+  }
+}
+
+void handleData() {
+  readSensors();
+
+  String json = "{";
+  json += "\"temperature\":" + String(temperature, 1) + ",";
+  json += "\"humidity\":" + String(humidity, 1) + ",";
+  json += "\"vibration\":";
+  json += vibrationDetected ? "true" : "false";
+  json += "}";
+
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.send(200, "application/json", json);
+}
+
+void handleHome() {
+  String page = R"rawliteral(
+  <!DOCTYPE html>
+  <html>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ROBO-SX Monitoring</title>
+    <style>
+      body {
+        font-family: Arial;
+        background: #101827;
+        color: white;
+        text-align: center;
+        padding: 20px;
+      }
+      .card {
+        background: #1e293b;
+        padding: 20px;
+        margin: 15px auto;
+        border-radius: 12px;
+        max-width: 350px;
+      }
+      .value { font-size: 28px; color: #38bdf8; }
+    </style>
+  </head>
+  <body>
+    <h1>ROBO-SX</h1>
+    <p>Rail Track Monitoring Prototype</p>
+
+    <div class="card">
+      <h3>Temperature</h3>
+      <div class="value" id="temp">--</div>
+    </div>
+
+    <div class="card">
+      <h3>Humidity</h3>
+      <div class="value" id="hum">--</div>
+    </div>
+
+    <div class="card">
+      <h3>Vibration Status</h3>
+      <div class="value" id="vib">--</div>
+    </div>
+
+    <script>
+      async function updateData() {
+        try {
+          const response = await fetch('/api/data');
+          const data = await response.json();
+
+          document.getElementById('temp').textContent =
+            data.temperature + ' °C';
+
+          document.getElementById('hum').textContent =
+            data.humidity + ' %';
+
+          document.getElementById('vib').textContent =
+            data.vibration ? 'Detected' : 'Not detected';
+        } catch (error) {
+          console.log('Unable to read sensor data');
+        }
+      }
+
+      updateData();
+      setInterval(updateData, 1000);
+    </script>
+  </body>
+  </html>
+  )rawliteral";
+
+  server.send(200, "text/html", page);
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(VIBRATION_PIN, INPUT);
+  dht.begin();
+
+  Serial.println("ROBO-SX Starting...");
+
+  WiFi.begin(ssid, password);
+
+  Serial.print("Connecting to Wi-Fi");
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println();
+  Serial.println("Wi-Fi Connected!");
+
+  Serial.print("Open dashboard: http://");
+  Serial.println(WiFi.localIP());
+
+  server.on("/", handleHome);
+  server.on("/api/data", handleData);
+
+  server.begin();
+
+  Serial.println("ROBO-SX server started!");
+}
+
+void loop() {
+  server.handleClient();
+  readSensors();
+}
